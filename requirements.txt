@@ -1,0 +1,7 @@
+
+SimpleITK
+evalutils==0.3.0
+matplotlib
+scikit-learn==1.5.1
+scipy==1.13.1
+nnUNETv2==2.5.1
