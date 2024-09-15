@@ -1,35 +1,65 @@
+import glob
+import json
 import os
 from pathlib import Path
-import torch
-import shutil
-import uuid
-import SimpleITK as sitk
 
-class Autopet:
+import SimpleITK as sitk
+import torch
+
+from predict import PredictModel
+
+class DatacentricBaseline:
     def __init__(self):
         """
-        Initialize paths and parameters.
+        Write your own input validators here
+        Initialize your model etc.
         """
-        # Read environment variables or use defaults
+        # Path configurations
         self.input_path = os.getenv("INPUT_PATH", "/input/")
         self.output_path = os.getenv("OUTPUT_PATH", "/output/images/automated-petct-lesion-segmentation/")
+        self.output_path_category = os.getenv("DATA_CENTRIC_OUTPUT_PATH", "/output/data-centric-model.json")
         self.nii_path = os.getenv("nnUNet_raw", "/nnUNet_raw/") + "Dataset131_Autopet3/imagesVa/"
-        self.result_path = os.getenv("nnUNet_results", "/nnUNet_results/")  # nnUNet results path
-        self.nii_seg_file = "Dataset131_Autopet3.nii.gz"
+        self.result_path = os.getenv("nnUNet_results", "/nnUNet_results/")
+        self.weights_path = "/opt/algorithm/weights/"
 
-        # Print paths for debugging
-        print("INPUT_PATH:", self.input_path)
-        print("OUTPUT_PATH:", self.output_path)
-        print("nnUNet_raw_data_base:", os.getenv("nnUNet_raw"))
-        print("nnUNet_results:", os.getenv("nnUNet_results"))
-        print("NII Path:", self.nii_path)
-        print("Result Path:", self.result_path)
+        # Initialize model and paths
+        self.ckpt_paths = glob.glob(os.path.join(self.weights_path, "*.ckpt"))
+        self.tta = True
+        self.sw_batch_size = 12
+        self.random_flips = 1
+        self.dynamic_tta = True
+        self.max_tta_time = 220
+
+        self.inferer = PredictModel(
+            model_paths=self.ckpt_paths,
+            sw_batch_size=self.sw_batch_size,
+            tta=self.tta,
+            random_flips=self.random_flips,
+            dynamic_tta=self.dynamic_tta,
+            max_tta_time=self.max_tta_time,
+        )
 
         # Create directories if they do not exist
         Path(self.input_path).mkdir(parents=True, exist_ok=True)
         Path(self.output_path).mkdir(parents=True, exist_ok=True)
         Path(self.nii_path).mkdir(parents=True, exist_ok=True)
         Path(self.result_path).mkdir(parents=True, exist_ok=True)
+
+    def save_datacentric(self, value: bool):
+        """
+        Save the data-centric model info as a JSON file.
+        """
+        print(f"Saving datacentric json to {self.output_path_category}")
+        with open(self.output_path_category, "w") as json_file:
+            json.dump(value, json_file, indent=4)
+
+    def convert_mha_to_nii(self, mha_input_path, nii_out_path):
+        img = sitk.ReadImage(mha_input_path)
+        sitk.WriteImage(img, nii_out_path, True)
+
+    def convert_nii_to_mha(self, nii_input_path, mha_out_path):
+        img = sitk.ReadImage(nii_input_path)
+        sitk.WriteImage(img, mha_out_path, True)
 
     def check_gpu(self):
         """
@@ -44,6 +74,35 @@ class Autopet:
             print("Device name: " + torch.cuda.get_device_name(0))
             print("Device memory: " + str(torch.cuda.get_device_properties(0).total_memory))
 
+    def load_inputs(self):
+        """
+        Read input images from /input/ and convert them.
+        """
+        ct_mha = os.listdir(os.path.join(self.input_path, "images/ct/"))[0]
+        pet_mha = os.listdir(os.path.join(self.input_path, "images/pet/"))[0]
+        uuid = os.path.splitext(ct_mha)[0]
+
+        self.convert_mha_to_nii(
+            os.path.join(self.input_path, "images/pet/", pet_mha),
+            os.path.join(self.nii_path, "SUV.nii.gz"),
+        )
+        self.convert_mha_to_nii(
+            os.path.join(self.input_path, "images/ct/", ct_mha),
+            os.path.join(self.nii_path, "CTres.nii.gz"),
+        )
+        return uuid
+
+    def write_outputs(self, uuid):
+        """
+        Write the prediction output to /output/ directory.
+        """
+        os.makedirs(os.path.dirname(self.output_path), exist_ok=True)
+        self.convert_nii_to_mha(
+            os.path.join(self.output_path, "PRED.nii.gz"),
+            os.path.join(self.output_path, uuid + ".mha"),
+        )
+        print(f"Output written to: {os.path.join(self.output_path, uuid + '.mha')}")
+
     def predict(self):
         """
         Perform prediction using nnUNet.
@@ -57,11 +116,16 @@ class Autopet:
 
     def process(self):
         """
-        Process the input data, perform prediction, and write the results to /output/ directory.
+        Load inputs, perform prediction, and write the outputs.
         """
         self.check_gpu()
         print("Start processing")
+        uuid = self.load_inputs()
+        print("Start prediction")
         self.predict()
+        print("Start output writing")
+        self.save_datacentric(True)
+        self.write_outputs(uuid)
 
 if __name__ == "__main__":
-    Autopet().process()
+    DatacentricBaseline().process()
