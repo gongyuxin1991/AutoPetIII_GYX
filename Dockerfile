@@ -18,21 +18,23 @@ RUN groupadd -r algorithm && useradd -m --no-log-init -r -g algorithm algorithm 
 USER algorithm
 WORKDIR /opt/algorithm
 
-# 复制数据和脚本
-COPY --chown=algorithm:algorithm nnUnet_raw /nnUNet_raw/
-COPY --chown=algorithm:algorithm nnUNet_results /nnUNet_results/
-COPY --chown=algorithm:algorithm Dataset131_AutopetIII_result /Dataset131_AutopetIII_result/
-COPY --chown=algorithm:algorithm process.py /opt/algorithm/
+# 复制 NIfTI 文件到容器中的 /input 目录
+COPY input/images/ct /input/images/ct/
+COPY input/images/pet /input/images/pet/
 
-# 列出文件夹内容以便调试
-RUN ls -l /nnUNet_raw
-RUN ls -l /nnUNet_results
-RUN ls -l /Dataset131_AutopetIII_result
+# 复制数据和脚本
+COPY --chown=algorithm:algorithm requirements.txt /opt/algorithm/
+COPY --chown=algorithm:algorithm process.py /opt/algorithm/
+COPY --chown=algorithm:algorithm nnUNet_results /nnUNet_results
+COPY --chown=algorithm:algorithm nnUnet_raw /opt/algorithm/nnUNet_raw/
+COPY --chown=algorithm:algorithm nnUNet_results /opt/algorithm//nnUNet_results/
+COPY --chown=algorithm:algorithm Dataset131_AutopetIII_result /Dataset131_AutopetIII_result/
 
 # 设置环境变量
-ENV nnUNet_raw="/nnUNet_raw/"
-ENV nnUNet_preprocessed="/nnUNet_raw/nnUNet_preprocessed/"
-ENV nnUNet_results="/nnUNet_results/"
+ENV PATH="/home/algorithm/.local/bin:${PATH}"
+ENV nnUNet_raw="/opt/algorithm/nnUNet_raw"
+ENV nnUNet_preprocessed="/opt/algorithm/nnUNet_preprocessed"
+ENV nnUNet_results="/opt/algorithm/nnUNet_results"
 
 # 入口点
 ENTRYPOINT ["python", "process.py"]
